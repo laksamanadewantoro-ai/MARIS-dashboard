@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 
 DB = "barometer.db"
 
+# =========================
+# CREATE DB + TABLE SAFE
+# =========================
 conn = sqlite3.connect(DB)
 cursor = conn.cursor()
 
@@ -14,7 +17,8 @@ CREATE TABLE IF NOT EXISTS pressure_data (
     pressure REAL,
     wind_speed REAL,
     wave_height REAL,
-    created_at TEXT
+    created_at TEXT,
+    location TEXT DEFAULT 'Pulau Pabelokan'
 )
 """)
 
@@ -22,6 +26,9 @@ conn.commit()
 
 print("MARIS fetch system started...")
 
+# =========================
+# MAIN LOOP
+# =========================
 while True:
     try:
         url = "https://api.open-meteo.com/v1/forecast"
@@ -55,9 +62,9 @@ while True:
         now = datetime.now(timezone.utc).isoformat()
 
         cursor.execute("""
-            INSERT INTO pressure_data (pressure, wind_speed, wave_height, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (pressure, wind, wave, now))
+            INSERT INTO pressure_data (pressure, wind_speed, wave_height, created_at, location)
+            VALUES (?, ?, ?, ?, ?)
+        """, (pressure, wind, wave, now, "Pulau Pabelokan"))
 
         conn.commit()
 
