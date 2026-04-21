@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS pressure_data (
     wind_speed REAL,
     wave_height REAL,
     created_at TEXT,
-    location TEXT DEFAULT 'Pulau Pabelokan'
+    location TEXT
 )
 """)
 
@@ -27,48 +27,64 @@ conn.commit()
 print("MARIS fetch system started...")
 
 # =========================
-# MAIN LOOP
+# LOCATIONS (FIX KALI JAPAT BACK)
 # =========================
+locations = [
+    {
+        "name": "Pulau Pabelokan",
+        "lat": -5.5,
+        "lon": 106.5
+    },
+    {
+        "name": "Kali Japat - Jakarta Utara",
+        "lat": -6.10,
+        "lon": 106.88
+    }
+]
+
+url = "https://api.open-meteo.com/v1/forecast"
+
 while True:
     try:
-        url = "https://api.open-meteo.com/v1/forecast"
+        for loc in locations:
 
-        params = {
-            "latitude": -5.5,
-            "longitude": 106.5,
-            "hourly": "wind_speed_10m,pressure_msl",
-            "forecast_days": 1
-        }
+            params = {
+                "latitude": loc["lat"],
+                "longitude": loc["lon"],
+                "hourly": "wind_speed_10m,pressure_msl",
+                "forecast_days": 1
+            }
 
-        response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=10)
 
-        if response.status_code != 200:
-            print("[ERROR] API status:", response.status_code)
-            time.sleep(60)
-            continue
+            if response.status_code != 200:
+                print("[ERROR] API:", response.status_code)
+                continue
 
-        data = response.json()
+            data = response.json()
 
-        if "hourly" not in data:
-            print("[ERROR] Invalid API response")
-            time.sleep(60)
-            continue
+            wind = data["hourly"]["wind_speed_10m"][0]
+            pressure = data["hourly"]["pressure_msl"][0]
+            wave = round(wind * 0.1, 2)
 
-        wind = data["hourly"]["wind_speed_10m"][0]
-        pressure = data["hourly"]["pressure_msl"][0]
+            now = datetime.now(timezone.utc).isoformat()
 
-        wave = round(wind * 0.1, 2)
+            cursor.execute("""
+                INSERT INTO pressure_data (
+                    pressure, wind_speed, wave_height, created_at, location
+                )
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                pressure,
+                wind,
+                wave,
+                now,
+                loc["name"]
+            ))
 
-        now = datetime.now(timezone.utc).isoformat()
+            conn.commit()
 
-        cursor.execute("""
-            INSERT INTO pressure_data (pressure, wind_speed, wave_height, created_at, location)
-            VALUES (?, ?, ?, ?, ?)
-        """, (pressure, wind, wave, now, "Pulau Pabelokan"))
-
-        conn.commit()
-
-        print(f"[OK] wind={wind} wave={wave} pressure={pressure}")
+            print(f"[OK] {loc['name']} wind={wind} wave={wave} pressure={pressure}")
 
     except Exception as e:
         print("[ERROR]", e)
