@@ -1,7 +1,11 @@
+# =========================
+# IMPORT (WAJIB PALING ATAS)
+# =========================
 import streamlit as st
 import sqlite3
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import os
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
@@ -81,7 +85,7 @@ with col2:
     """, unsafe_allow_html=True)
 
 # =========================
-# DATABASE SAFE LOAD
+# DATABASE LOAD
 # =========================
 DB_PATH = "barometer.db"
 
@@ -98,21 +102,15 @@ df = pd.read_sql_query(
 
 conn.close()
 
-# =========================
-# EMPTY CHECK
-# =========================
 if df.empty:
-    st.warning("No data yet. Run fetch_api.py and wait 1-2 minutes.")
+    st.warning("No data yet. Run fetch_api.py first.")
     st.stop()
 
-# =========================
-# CLEAN DATA
-# =========================
 df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
 df = df.dropna(subset=["created_at"]).sort_values("created_at")
 
 # =========================
-# FILTER
+# FILTER LOCATION
 # =========================
 if location_filter != "All":
     df = df[df["location"] == location_filter]
@@ -122,7 +120,7 @@ if df.empty:
     st.stop()
 
 # =========================
-# LATEST
+# LATEST DATA
 # =========================
 latest = df.iloc[-1]
 
@@ -132,7 +130,7 @@ pressure = float(latest["pressure"])
 created_at = latest["created_at"]
 
 # =========================
-# STATUS
+# STATUS ENGINE
 # =========================
 status = "SAFE"
 color = "#22c55e"
@@ -155,33 +153,108 @@ else:
     st.success("✓ Safe Operational Condition")
 
 # =========================
-# KPI
+# KPI SECTION
 # =========================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 
 c1, c2, c3, c4 = st.columns(4)
 
-c1.markdown(f"<div class='kpi'><div class='kpi-title'>Wind</div><div class='kpi-value'>{wind:.2f} kt</div></div>", unsafe_allow_html=True)
-c2.markdown(f"<div class='kpi'><div class='kpi-title'>Wave</div><div class='kpi-value'>{wave:.2f} m</div></div>", unsafe_allow_html=True)
+c1.markdown(f"<div class='kpi'><div class='kpi-title'>Wind Speed</div><div class='kpi-value'>{wind:.2f} kt</div></div>", unsafe_allow_html=True)
+c2.markdown(f"<div class='kpi'><div class='kpi-title'>Wave Height</div><div class='kpi-value'>{wave:.2f} m</div></div>", unsafe_allow_html=True)
 c3.markdown(f"<div class='kpi'><div class='kpi-title'>Pressure</div><div class='kpi-value'>{pressure:.2f} hPa</div></div>", unsafe_allow_html=True)
 c4.markdown(f"<div class='kpi'><div class='kpi-title'>Status</div><div class='kpi-value' style='color:{color}'>{status}</div></div>", unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# CHART
+# MAP (RESTORED)
 # =========================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">Trends</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Location Monitoring Map</div>', unsafe_allow_html=True)
 
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=df["created_at"], y=df["wind_speed"], name="Wind"))
-fig.add_trace(go.Scatter(x=df["created_at"], y=df["wave_height"], name="Wave"))
-fig.add_trace(go.Scatter(x=df["created_at"], y=df["pressure"], name="Pressure"))
+coords = {
+    "Pulau Pabelokan": (-5.5, 106.5),
+    "Kali Japat - Jakarta Utara": (-6.10, 106.88)
+}
 
-fig.update_layout(template="plotly_dark", height=400)
+df_map = df.groupby("location").tail(1).copy()
+df_map["lat"] = df_map["location"].apply(lambda x: coords.get(x, (-5.5, 106.5))[0])
+df_map["lon"] = df_map["location"].apply(lambda x: coords.get(x, (-5.5, 106.5))[1])
 
-st.plotly_chart(fig, use_container_width=True)
+def get_status(row):
+    if row["wave_height"] > 2 or row["wind_speed"] > 20:
+        return "DANGER"
+    elif row["wave_height"] > 1 or row["wind_speed"] > 12:
+        return "WARNING"
+    return "SAFE"
+
+df_map["status"] = df_map.apply(get_status, axis=1)
+
+fig_map = px.scatter_mapbox(
+    df_map,
+    lat="lat",
+    lon="lon",
+    color="status",
+    hover_name="location",
+    hover_data=["wind_speed", "wave_height", "pressure", "created_at"],
+    zoom=5,
+    height=450
+)
+
+fig_map.update_layout(
+    mapbox_style="open-street-map",
+    margin=dict(l=0, r=0, t=0, b=0)
+)
+
+st.plotly_chart(fig_map, use_container_width=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================
+# CHART + GAUGE (FULL RESTORE)
+# =========================
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Environmental Trends</div>', unsafe_allow_html=True)
+
+col1, col2 = st.columns(2)
+
+# WIND
+fig1 = go.Figure()
+fig1.add_trace(go.Scatter(x=df["created_at"], y=df["wind_speed"], name="Wind Speed"))
+fig1.update_layout(template="plotly_dark", height=280, title="🌬 Wind Speed Trend (kt)")
+col1.plotly_chart(fig1, use_container_width=True)
+
+# WAVE
+fig2 = go.Figure()
+fig2.add_trace(go.Scatter(x=df["created_at"], y=df["wave_height"], name="Wave Height"))
+fig2.update_layout(template="plotly_dark", height=280, title="🌊 Wave Height Trend (m)")
+col2.plotly_chart(fig2, use_container_width=True)
+
+col3, col4 = st.columns(2)
+
+# PRESSURE
+fig3 = go.Figure()
+fig3.add_trace(go.Scatter(x=df["created_at"], y=df["pressure"], name="Pressure"))
+fig3.update_layout(template="plotly_dark", height=280, title="🌡 Atmospheric Pressure (hPa)")
+col3.plotly_chart(fig3, use_container_width=True)
+
+# GAUGE
+fig4 = go.Figure(go.Indicator(
+    mode="gauge+number",
+    value=wind,
+    title={'text': "🌬 Wind Speed Gauge (kt)"},
+    gauge={
+        'axis': {'range': [0, 40]},
+        'steps': [
+            {'range': [0, 12], 'color': "#1e293b"},
+            {'range': [12, 20], 'color': "#f59e0b"},
+            {'range': [20, 40], 'color': "#ef4444"}
+        ]
+    }
+))
+
+fig4.update_layout(template="plotly_dark", height=280)
+col4.plotly_chart(fig4, use_container_width=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
