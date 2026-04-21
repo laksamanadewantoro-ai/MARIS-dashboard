@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+import os
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
@@ -10,7 +11,6 @@ from streamlit_autorefresh import st_autorefresh
 # CONFIG
 # =========================
 st.set_page_config(layout="wide", page_title="MARIS Dashboard")
-
 st_autorefresh(interval=5000, key="refresh")
 
 # =========================
@@ -21,9 +21,7 @@ st.markdown("""
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 
-.block-container {
-    padding: 2rem;
-}
+.block-container { padding: 2rem; }
 
 .card {
     background: linear-gradient(145deg, #0f172a, #1e293b);
@@ -62,10 +60,8 @@ footer {visibility: hidden;}
 # =========================
 with st.sidebar:
     st.image("logo.png", width=140)
-
     st.markdown("### MARIS")
     st.caption("Marine & Atmospheric Monitoring System")
-
     st.markdown("---")
 
     location_filter = st.selectbox(
@@ -97,21 +93,59 @@ with col2:
     """, unsafe_allow_html=True)
 
 # =========================
-# LOAD DATA
+# DATABASE SAFE LOAD
 # =========================
-conn = sqlite3.connect("barometer.db")
-df = pd.read_sql_query(
-    "SELECT * FROM pressure_data ORDER BY created_at DESC LIMIT 500",
-    conn
-)
+DB_PATH = "barometer.db"
 
+if not os.path.exists(DB_PATH):
+    st.error("Database file not found. Run fetch_api.py first.")
+    st.stop()
+
+try:
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    cursor = conn.cursor()
+
+    # check table exists
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='pressure_data'
+    """)
+
+    if cursor.fetchone() is None:
+        st.error("Table 'pressure_data' not found in database")
+        st.stop()
+
+    df = pd.read_sql_query(
+        "SELECT * FROM pressure_data ORDER BY created_at DESC LIMIT 500",
+        conn
+    )
+
+    conn.close()
+
+except Exception as e:
+    st.error(f"Database error: {e}")
+    st.stop()
+
+# =========================
+# EMPTY DATA CHECK
+# =========================
 if df.empty:
     st.warning("No data available. Run fetch_api.py")
     st.stop()
 
+# =========================
+# CLEAN DATA
+# =========================
 df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
 df = df.dropna(subset=["created_at"]).sort_values("created_at")
 
+if df.empty:
+    st.warning("Invalid timestamp data in database")
+    st.stop()
+
+# =========================
+# DEFAULT LOCATION
+# =========================
 if "location" not in df.columns:
     df["location"] = "Pulau Pabelokan"
 
@@ -121,14 +155,22 @@ if "location" not in df.columns:
 if location_filter != "All":
     df = df[df["location"] == location_filter]
 
-latest = df.iloc[-1]
-
-wind = latest["wind_speed"]
-wave = latest["wave_height"]
-pressure = latest["pressure"]
+if df.empty:
+    st.warning("No data for selected location")
+    st.stop()
 
 # =========================
-# STATUS LOGIC
+# LATEST DATA
+# =========================
+latest = df.iloc[-1]
+
+wind = float(latest.get("wind_speed", 0))
+wave = float(latest.get("wave_height", 0))
+pressure = float(latest.get("pressure", 0))
+created_at = latest["created_at"]
+
+# =========================
+# STATUS ENGINE
 # =========================
 status = "SAFE"
 color = "#22c55e"
@@ -139,6 +181,16 @@ if wave > 2 or wind > 20:
 elif wave > 1 or wind > 12:
     status = "WARNING"
     color = "#f59e0b"
+
+# =========================
+# ALERT
+# =========================
+if status == "DANGER":
+    st.error("⚠ HIGH SEA STATE DETECTED")
+elif status == "WARNING":
+    st.warning("⚠ Moderate Sea Condition")
+else:
+    st.success("✓ Safe Operational Condition")
 
 # =========================
 # KPI SECTION
@@ -189,6 +241,7 @@ coords = {
 }
 
 df_map = df.groupby("location").tail(1).copy()
+
 df_map["lat"] = df_map["location"].apply(lambda x: coords.get(x, (-5.5, 106.5))[0])
 df_map["lon"] = df_map["location"].apply(lambda x: coords.get(x, (-5.5, 106.5))[1])
 
@@ -218,7 +271,6 @@ fig_map.update_layout(
 )
 
 st.plotly_chart(fig_map, use_container_width=True)
-
 st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
@@ -232,13 +284,11 @@ col1, col2 = st.columns(2)
 fig1 = go.Figure()
 fig1.add_trace(go.Scatter(x=df["created_at"], y=df["wind_speed"], mode="lines"))
 fig1.update_layout(template="plotly_dark", height=280, title="Wind Speed")
-
 col1.plotly_chart(fig1, use_container_width=True)
 
 fig2 = go.Figure()
 fig2.add_trace(go.Scatter(x=df["created_at"], y=df["wave_height"], mode="lines"))
 fig2.update_layout(template="plotly_dark", height=280, title="Wave Height")
-
 col2.plotly_chart(fig2, use_container_width=True)
 
 col3, col4 = st.columns(2)
@@ -246,7 +296,6 @@ col3, col4 = st.columns(2)
 fig3 = go.Figure()
 fig3.add_trace(go.Scatter(x=df["created_at"], y=df["pressure"], mode="lines"))
 fig3.update_layout(template="plotly_dark", height=280, title="Pressure")
-
 col3.plotly_chart(fig3, use_container_width=True)
 
 fig4 = go.Figure(go.Indicator(
@@ -264,7 +313,6 @@ fig4 = go.Figure(go.Indicator(
 ))
 
 fig4.update_layout(template="plotly_dark", height=280)
-
 col4.plotly_chart(fig4, use_container_width=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
@@ -272,4 +320,4 @@ st.markdown('</div>', unsafe_allow_html=True)
 # =========================
 # FOOTER
 # =========================
-st.caption(f"Last Update: {latest['created_at']}")
+st.caption(f"Last Update: {created_at}")
