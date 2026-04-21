@@ -2,7 +2,6 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import os
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
@@ -103,8 +102,9 @@ if not os.path.exists(DB_PATH):
 
 try:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-
     cursor = conn.cursor()
+
+    # AUTO CREATE TABLE (FIX STREAMLIT CLOUD ISSUE)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pressure_data (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,7 +112,7 @@ try:
             wind_speed REAL,
             wave_height REAL,
             created_at TEXT,
-            location TEXT
+            location TEXT DEFAULT 'Pulau Pabelokan'
         )
     """)
     conn.commit()
@@ -146,7 +146,7 @@ if df.empty:
     st.stop()
 
 # =========================
-# FILTER
+# FILTER LOCATION
 # =========================
 if location_filter != "All":
     df = df[df["location"] == location_filter]
@@ -166,7 +166,7 @@ pressure = float(latest["pressure"])
 created_at = latest["created_at"]
 
 # =========================
-# STATUS
+# STATUS ENGINE
 # =========================
 status = "SAFE"
 color = "#22c55e"
@@ -189,7 +189,7 @@ else:
     st.success("✓ Safe Operational Condition")
 
 # =========================
-# KPI
+# KPI SECTION
 # =========================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 
@@ -226,19 +226,50 @@ c4.markdown(f"""
 st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# CHART
+# CHARTS + GAUGE
 # =========================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.markdown('<div class="section-title">Environmental Trends</div>', unsafe_allow_html=True)
 
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=df["created_at"], y=df["wind_speed"], mode="lines", name="Wind"))
-fig.add_trace(go.Scatter(x=df["created_at"], y=df["wave_height"], mode="lines", name="Wave"))
-fig.add_trace(go.Scatter(x=df["created_at"], y=df["pressure"], mode="lines", name="Pressure"))
+col1, col2 = st.columns(2)
 
-fig.update_layout(template="plotly_dark", height=400)
+# WIND
+fig1 = go.Figure()
+fig1.add_trace(go.Scatter(x=df["created_at"], y=df["wind_speed"], mode="lines", name="Wind"))
+fig1.update_layout(template="plotly_dark", height=280)
+col1.plotly_chart(fig1, use_container_width=True)
 
-st.plotly_chart(fig, use_container_width=True)
+# WAVE
+fig2 = go.Figure()
+fig2.add_trace(go.Scatter(x=df["created_at"], y=df["wave_height"], mode="lines", name="Wave"))
+fig2.update_layout(template="plotly_dark", height=280)
+col2.plotly_chart(fig2, use_container_width=True)
+
+col3, col4 = st.columns(2)
+
+# PRESSURE
+fig3 = go.Figure()
+fig3.add_trace(go.Scatter(x=df["created_at"], y=df["pressure"], mode="lines", name="Pressure"))
+fig3.update_layout(template="plotly_dark", height=280)
+col3.plotly_chart(fig3, use_container_width=True)
+
+# GAUGE WIND
+fig4 = go.Figure(go.Indicator(
+    mode="gauge+number",
+    value=wind,
+    title={'text': "Wind Speed"},
+    gauge={
+        'axis': {'range': [0, 40]},
+        'steps': [
+            {'range': [0, 12], 'color': "#1e293b"},
+            {'range': [12, 20], 'color': "#f59e0b"},
+            {'range': [20, 40], 'color': "#ef4444"}
+        ]
+    }
+))
+
+fig4.update_layout(template="plotly_dark", height=280)
+col4.plotly_chart(fig4, use_container_width=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
