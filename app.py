@@ -35,21 +35,13 @@ footer {visibility: hidden;}
     border-radius: 12px;
 }
 
-.kpi-title {
-    color: #94a3b8;
-    font-size: 12px;
-}
-
-.kpi-value {
-    font-size: 22px;
-    font-weight: bold;
-    color: white;
-}
+.kpi-title { color:#94a3b8; font-size:12px; }
+.kpi-value { font-size:22px; font-weight:bold; color:white; }
 
 .section-title {
-    font-size: 18px;
-    color: white;
-    margin-bottom: 10px;
+    font-size:18px;
+    color:white;
+    margin-bottom:10px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -65,10 +57,9 @@ with st.sidebar:
 
     location_filter = st.selectbox(
         "Select Location",
-        ["All", "Pulau Pabelokan"]
+        ["All", "Pulau Pabelokan", "Kali Japat - Jakarta Utara"]
     )
 
-    st.markdown("---")
     st.success("System Online")
 
 # =========================
@@ -81,13 +72,11 @@ with col1:
 
 with col2:
     st.markdown("""
-    <div style="padding-top:8px;">
-        <div style="font-size:26px; font-weight:bold; color:white;">
-            MARIS Dashboard
-        </div>
-        <div style="color:#94a3b8;">
-            Marine & Atmospheric Monitoring System | Offshore Monitoring Platform
-        </div>
+    <div style="font-size:26px; font-weight:bold; color:white;">
+        MARIS Dashboard
+    </div>
+    <div style="color:#94a3b8;">
+        Marine & Atmospheric Monitoring System | Offshore Monitoring Platform
     </div>
     """, unsafe_allow_html=True)
 
@@ -97,42 +86,23 @@ with col2:
 DB_PATH = "barometer.db"
 
 if not os.path.exists(DB_PATH):
-    st.error("Database file not found. Run fetch_api.py first.")
+    st.error("Database not found. Run fetch_api.py first.")
     st.stop()
 
-try:
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    cursor = conn.cursor()
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 
-    # AUTO CREATE TABLE (FIX STREAMLIT CLOUD ISSUE)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pressure_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            pressure REAL,
-            wind_speed REAL,
-            wave_height REAL,
-            created_at TEXT,
-            location TEXT DEFAULT 'Pulau Pabelokan'
-        )
-    """)
-    conn.commit()
+df = pd.read_sql_query(
+    "SELECT * FROM pressure_data ORDER BY created_at DESC LIMIT 1000",
+    conn
+)
 
-    df = pd.read_sql_query(
-        "SELECT * FROM pressure_data ORDER BY created_at DESC LIMIT 500",
-        conn
-    )
-
-    conn.close()
-
-except Exception as e:
-    st.error(f"Database error: {e}")
-    st.stop()
+conn.close()
 
 # =========================
 # EMPTY CHECK
 # =========================
 if df.empty:
-    st.warning("No data available yet. Please run fetch_api.py first.")
+    st.warning("No data yet. Run fetch_api.py and wait 1-2 minutes.")
     st.stop()
 
 # =========================
@@ -141,12 +111,8 @@ if df.empty:
 df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
 df = df.dropna(subset=["created_at"]).sort_values("created_at")
 
-if df.empty:
-    st.warning("Invalid data in database")
-    st.stop()
-
 # =========================
-# FILTER LOCATION
+# FILTER
 # =========================
 if location_filter != "All":
     df = df[df["location"] == location_filter]
@@ -156,7 +122,7 @@ if df.empty:
     st.stop()
 
 # =========================
-# LATEST DATA
+# LATEST
 # =========================
 latest = df.iloc[-1]
 
@@ -166,7 +132,7 @@ pressure = float(latest["pressure"])
 created_at = latest["created_at"]
 
 # =========================
-# STATUS ENGINE
+# STATUS
 # =========================
 status = "SAFE"
 color = "#22c55e"
@@ -189,87 +155,33 @@ else:
     st.success("✓ Safe Operational Condition")
 
 # =========================
-# KPI SECTION
+# KPI
 # =========================
 st.markdown('<div class="card">', unsafe_allow_html=True)
 
 c1, c2, c3, c4 = st.columns(4)
 
-c1.markdown(f"""
-<div class="kpi">
-<div class="kpi-title">Wind Speed</div>
-<div class="kpi-value">{wind:.2f} kt</div>
-</div>
-""", unsafe_allow_html=True)
-
-c2.markdown(f"""
-<div class="kpi">
-<div class="kpi-title">Wave Height</div>
-<div class="kpi-value">{wave:.2f} m</div>
-</div>
-""", unsafe_allow_html=True)
-
-c3.markdown(f"""
-<div class="kpi">
-<div class="kpi-title">Pressure</div>
-<div class="kpi-value">{pressure:.2f} hPa</div>
-</div>
-""", unsafe_allow_html=True)
-
-c4.markdown(f"""
-<div class="kpi">
-<div class="kpi-title">Status</div>
-<div class="kpi-value" style="color:{color}">{status}</div>
-</div>
-""", unsafe_allow_html=True)
+c1.markdown(f"<div class='kpi'><div class='kpi-title'>Wind</div><div class='kpi-value'>{wind:.2f} kt</div></div>", unsafe_allow_html=True)
+c2.markdown(f"<div class='kpi'><div class='kpi-title'>Wave</div><div class='kpi-value'>{wave:.2f} m</div></div>", unsafe_allow_html=True)
+c3.markdown(f"<div class='kpi'><div class='kpi-title'>Pressure</div><div class='kpi-value'>{pressure:.2f} hPa</div></div>", unsafe_allow_html=True)
+c4.markdown(f"<div class='kpi'><div class='kpi-title'>Status</div><div class='kpi-value' style='color:{color}'>{status}</div></div>", unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
-# CHARTS + GAUGE
+# CHART
 # =========================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">Environmental Trends</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Trends</div>', unsafe_allow_html=True)
 
-col1, col2 = st.columns(2)
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=df["created_at"], y=df["wind_speed"], name="Wind"))
+fig.add_trace(go.Scatter(x=df["created_at"], y=df["wave_height"], name="Wave"))
+fig.add_trace(go.Scatter(x=df["created_at"], y=df["pressure"], name="Pressure"))
 
-# WIND
-fig1 = go.Figure()
-fig1.add_trace(go.Scatter(x=df["created_at"], y=df["wind_speed"], mode="lines", name="Wind"))
-fig1.update_layout(template="plotly_dark", height=280)
-col1.plotly_chart(fig1, use_container_width=True)
+fig.update_layout(template="plotly_dark", height=400)
 
-# WAVE
-fig2 = go.Figure()
-fig2.add_trace(go.Scatter(x=df["created_at"], y=df["wave_height"], mode="lines", name="Wave"))
-fig2.update_layout(template="plotly_dark", height=280)
-col2.plotly_chart(fig2, use_container_width=True)
-
-col3, col4 = st.columns(2)
-
-# PRESSURE
-fig3 = go.Figure()
-fig3.add_trace(go.Scatter(x=df["created_at"], y=df["pressure"], mode="lines", name="Pressure"))
-fig3.update_layout(template="plotly_dark", height=280)
-col3.plotly_chart(fig3, use_container_width=True)
-
-# GAUGE WIND
-fig4 = go.Figure(go.Indicator(
-    mode="gauge+number",
-    value=wind,
-    title={'text': "Wind Speed"},
-    gauge={
-        'axis': {'range': [0, 40]},
-        'steps': [
-            {'range': [0, 12], 'color': "#1e293b"},
-            {'range': [12, 20], 'color': "#f59e0b"},
-            {'range': [20, 40], 'color': "#ef4444"}
-        ]
-    }
-))
-
-fig4.update_layout(template="plotly_dark", height=280)
-col4.plotly_chart(fig4, use_container_width=True)
+st.plotly_chart(fig, use_container_width=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
 
